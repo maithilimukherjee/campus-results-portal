@@ -14,7 +14,7 @@ class RegisterRequest(BaseModel):
     role: str  # "student" or "teacher" (Admin blocked!)
 
 class AssignRoleRequest(BaseModel):
-    uid: str
+    email: EmailStr
     role: str
 
 class LoginRequest(BaseModel):
@@ -98,9 +98,28 @@ def get_user_profile(user: dict = Depends(get_current_user)):
 
 @router.post("/set-role")
 def set_user_role(payload: AssignRoleRequest, admin_user: dict = Depends(require_role("admin"))):
-    """Admin-only override to change someone's role after registration."""
+    """Admin-only override to change a user's role using their email address."""
+    
+    # 1. Prevent unauthorized elevation to admin via this route if desired
+    valid_roles = ["student", "teacher", "admin"]
+    if payload.role not in valid_roles:
+        raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {valid_roles}")
+
     try:
-        firebase_auth.set_custom_user_claims(payload.uid, {"role": payload.role})
-        return {"message": f"Successfully assigned role '{payload.role}' to UID {payload.uid}"}
+        # 2. Look up the Firebase user by their email to fetch their UID
+        target_user = firebase_auth.get_user_by_email(payload.email)
+        
+        # 3. Stamp the custom claim onto their retrieved UID
+        firebase_auth.set_custom_user_claims(target_user.uid, {"role": payload.role})
+        
+        return {
+            "message": f"Successfully updated {payload.email} to role '{payload.role}'",
+            "uid": target_user.uid
+        }
+    except firebase_auth.UserNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No account found registered with email '{payload.email}'"
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
