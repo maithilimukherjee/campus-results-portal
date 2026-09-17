@@ -1,0 +1,21 @@
+import firebase_admin
+from firebase_admin import credentials, auth
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# 1. Initialize Firebase Admin
+KEY_PATH = os.getenv("FIREBASE_KEY_PATH", "serviceAccountKey.json")
+cred = credentials.Certificate(KEY_PATH)
+firebase_admin.initialize_app(cred)
+
+# 2. Paste your UID from the /me endpoint right here
+USER_UID = "eyJhbGciOiJSUzI1NiIsImtpZCI6IjY2MmQ3YTBkNGVlZmQzNDMyNjFjYWRkZmZhZWM2MjNkYzZjYTlmZjAiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20vY2xvdWRjcmV3LWF1dGgiLCJhdWQiOiJjbG91ZGNyZXctYXV0aCIsImF1dGhfdGltZSI6MTc4OTYyMTgwNiwidXNlcl9pZCI6IjNlR3dsR2ZXSlhOSHhiYXY1ZlJOb0czbmp2NjMiLCJzdWIiOiIzZUd3bEdmV0pYTkh4YmF2NWZSTm9HM25qdjYzIiwiaWF0IjoxNzg5NjIxODA2LCJleHAiOjE3ODk2MjU0MDYsImVtYWlsIjoiY3MyNC5tYWl0aGlsaS5tdWtoZXJqZWVAc3RjZXQuYWMuaW4iLCJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsImZpcmViYXNlIjp7ImlkZW50aXRpZXMiOnsiZW1haWwiOlsiY3MyNC5tYWl0aGlsaS5tdWtoZXJqZWVAc3RjZXQuYWMuaW4iXX0sInNpZ25faW5fcHJvdmlkZXIiOiJwYXNzd29yZCJ9fQ.ia8F-uPMieuAjVi3bb5IzDHCfRXeQRkwS9t_HfIvtFfxxeS7s5EucMKCMIan9fD6dMjojGT0z605va2laR_SgN-aDFMnl19-U2w9ijBg-61osxBO1NG7uyPRffuD4zqp2c_vcUwfBhA_zvBHDcIbfZ9Qe78toJBofmzvSKFDlLSGm-uzRNEFjwWVfhR02zOqbgKfW91DJWXugSCaO1UZbSXnKaP8onX06PKEgYnv_SJs06z6JRPM_dfn6WaMLdZhMsrxbkjSMlAGOiXx_m-8Gc1DVz3EW8tyQxRAWN-HqmLwqztoVgEoKCT-f3MSnZox6IEmjjxfhsP8CR1Wewm-PA"
+
+# 3. Assign the Admin Role
+try:
+    auth.set_custom_user_claims(USER_UID, {"role": "admin"})
+    print(f"\n✅ SUCCESS! User {USER_UID} is now an ADMIN.")
+except Exception as e:
+    print(f"❌ Error: {e}")
