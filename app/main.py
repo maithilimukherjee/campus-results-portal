@@ -6,7 +6,6 @@ app = FastAPI(
     version="1.0.0",
     description="Decoupled SOA Backend for Result Viewing and Payment Services"
 )
-
 # Register Routers
 app.include_router(auth_router.router)
 
@@ -16,5 +15,3 @@ def health_check():
 
 if __name__ == "__main__":
     uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
-
-#campus results
