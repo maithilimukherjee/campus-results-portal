@@ -72,6 +72,28 @@ class Payment(Base):
     student = relationship("Student", back_populates="payments")
 
 class Reevaluation(Base):
+    
+    __tablename__ = "reevaluations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    idempotency_key = Column(String, unique=True, nullable=False, index=True)
+    student_id = Column(UUID(as_uuid=True), ForeignKey("students.id"), nullable=False)
+    result_id = Column(UUID(as_uuid=True), ForeignKey("results.id"), nullable=False)
+    
+    # 🎯 Subject-Specific Routing: Auto-linked to subject teacher
+    assigned_teacher_id = Column(UUID(as_uuid=True), ForeignKey("teachers.id"), nullable=True, index=True)
+    
+    status = Column(SQLEnum(ReevalStatus), default=ReevalStatus.SUBMITTED, nullable=False)
+    updated_marks = Column(Numeric(5, 2), nullable=True)  # Populated once teacher reviews
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    student = relationship("Student", back_populates="reevaluations")
+    result = relationship("Result")
+    assigned_teacher = relationship("Teacher")
+
+    __table_args__ = (
+        UniqueConstraint("student_id", "result_id", name="uix_student_result_reeval"),
+    )
     __tablename__ = "reevaluations"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
