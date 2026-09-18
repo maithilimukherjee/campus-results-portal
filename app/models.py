@@ -10,11 +10,6 @@ class PaymentStatus(str, enum.Enum):
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
 
-class ReevalStatus(str, enum.Enum):
-    SUBMITTED = "SUBMITTED"
-    IN_REVIEW = "IN_REVIEW"
-    COMPLETED = "COMPLETED"
-
 class Student(Base):
     __tablename__ = "students"
 
@@ -71,7 +66,6 @@ class Payment(Base):
 
     student = relationship("Student", back_populates="payments")
 
-class Reevaluation(Base):
     
     __tablename__ = "reevaluations"
 
