@@ -1,9 +1,15 @@
+import os
+import requests
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
 from firebase_admin import auth as firebase_auth
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+
+from app.database import get_db
+from app.models import Student, Teacher
 from app.auth import get_current_user, require_role
-import requests
-import os       
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 
@@ -14,7 +20,11 @@ class RegisterRequest(BaseModel):
 
 class AssignRoleRequest(BaseModel):
     email: EmailStr
-    role: str
+    role: str  # "unassigned", "student", "teacher", "admin"
+    full_name: Optional[str] = None
+    department: Optional[str] = "Computer Science"
+    roll_number: Optional[str] = None  # Optional override for students
+    employee_id: Optional[str] = None  # Optional override for teachers
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -80,24 +90,67 @@ def get_user_profile(user: dict = Depends(get_current_user)):
     }
 
 @router.post("/set-role")
-def set_user_role(payload: AssignRoleRequest, admin_user: dict = Depends(require_role("admin"))):
-    """Admin-only override to change a user's role using their email address."""
+async def set_user_role(
+    payload: AssignRoleRequest, 
+    admin_user: dict = Depends(require_role("admin")),
+    db: AsyncSession = Depends(get_db)
+):
+    """Admin-only override to change a user's role and automatically provision their Neon DB profile."""
     valid_roles = ["unassigned", "student", "teacher", "admin"]
     if payload.role not in valid_roles:
         raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {valid_roles}")
 
     try:
+        # 1. Update Custom Claims in Firebase Auth
         target_user = firebase_auth.get_user_by_email(payload.email)
         firebase_auth.set_custom_user_claims(target_user.uid, {"role": payload.role})
         
+        user_uid = target_user.uid
+        display_name = payload.full_name or target_user.display_name or payload.email.split("@")[0].replace(".", " ").title()
+        department = payload.department or "Computer Science"
+
+        # 2. Auto-provision into Neon PostgreSQL based on the assigned role
+        if payload.role == "student":
+            stmt = select(Student).where(Student.user_uid == user_uid)
+            existing_student = (await db.execute(stmt)).scalar_one_or_none()
+
+            if not existing_student:
+                roll = payload.roll_number or f"CS{user_uid[:6].upper()}"
+                new_student = Student(
+                    user_uid=user_uid,
+                    roll_number=roll,
+                    full_name=display_name,
+                    department=department
+                )
+                db.add(new_student)
+                await db.commit()
+
+        elif payload.role == "teacher":
+            stmt = select(Teacher).where(Teacher.user_uid == user_uid)
+            existing_teacher = (await db.execute(stmt)).scalar_one_or_none()
+
+            if not existing_teacher:
+                emp_id = payload.employee_id or f"EMP{user_uid[:6].upper()}"
+                new_teacher = Teacher(
+                    user_uid=user_uid,
+                    employee_id=emp_id,
+                    full_name=display_name,
+                    department=department
+                )
+                db.add(new_teacher)
+                await db.commit()
+
         return {
-            "message": f"Successfully updated {payload.email} to role '{payload.role}'",
-            "uid": target_user.uid
+            "message": f"Successfully updated {payload.email} to role '{payload.role}' and synced database profile.",
+            "uid": user_uid,
+            "assigned_role": payload.role
         }
+
     except firebase_auth.UserNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No account found registered with email '{payload.email}'"
         )
     except Exception as e:
+        await db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
