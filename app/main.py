@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.routers import auth_router, results_router
+from app.routers import auth_router, results_router, payments_router
 
 app = FastAPI(
     title="Result-Day Digital Campus Platform API",
@@ -9,6 +9,7 @@ app = FastAPI(
 # Register Routers
 app.include_router(auth_router.router)
 app.include_router(results_router.router)
+app.include_router(payments_router.router)
 
 @app.get("/")
 def health_check():

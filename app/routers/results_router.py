@@ -2,6 +2,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 import redis.asyncio as redis
 
 from app.database import get_db
@@ -9,59 +10,65 @@ from app.redis_client import get_redis
 from app.models import Student, Result
 from app.auth import get_current_user
 
-router = APIRouter(prefix="/api/v1/results", tags=["Results & Marksheets"])
+router = APIRouter(prefix="/api/v1/results", tags=["Results"])
 
 @router.get("/{semester}")
-async def get_my_results(
+async def get_student_results(
     semester: int,
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     cache: redis.Redis = Depends(get_redis)
 ):
-    """Retrieves student results using the Cache-Aside pattern."""
+    """Fetches semester results with automatic JIT student profile linking and Redis caching."""
     user_uid = user.get("uid")
-    
-    # 1. Look up student profile in DB via Firebase UID
-    query = select(Student).where(Student.user_uid == user_uid)
-    db_student = (await db.execute(query)).scalar_one_or_none()
-    
-    if not db_student:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Student profile not found. Contact administrator."
-        )
+    user_email = user.get("email", "student@campus.edu")
 
-    cache_key = f"result:{db_student.id}:sem:{semester}"
+    # 1. Fetch Student profile by Firebase UID
+    student_stmt = select(Student).where(Student.user_uid == user_uid)
+    student = (await db.execute(student_stmt)).scalar_one_or_none()
 
-    # 2. Redis Lookup (⚡ Sub-5ms Read)
-    try:
-        cached_result = await cache.get(cache_key)
-        if cached_result:
-            return {
-                "source": "CACHE_HIT (Redis)",
-                "data": json.loads(cached_result)
-            }
-    except Exception as e:
-        # Fall back gracefully if cache fails
-        pass
+    # ⚡ AUTOMATIC LINKING / JIT PROVISIONING
+    if not student:
+        # Check if an unlinked seed student exists (e.g., from seed scripts)
+        unlinked_stmt = select(Student).where(Student.user_uid.like("mock_%"))
+        student = (await db.execute(unlinked_stmt)).scalars().first()
 
-    # 3. DB Lookup (🐢 Cache Miss)
-    results_query = select(Result).where(
-        Result.student_id == db_student.id,
+        if student:
+            # Auto-link the active user UID to this seed student
+            student.user_uid = user_uid
+        else:
+            # Auto-provision a brand new student profile
+            student = Student(
+                user_uid=user_uid,
+                roll_number=f"CS{user_uid[:6].upper()}",
+                full_name=user_email.split("@")[0].replace(".", " ").title(),
+                department="Computer Science"
+            )
+            db.add(student)
+
+        await db.commit()
+        await db.refresh(student)
+
+    # 2. Redis Cache Lookup (Cache-Aside Pattern)
+    cache_key = f"result:{student.id}:sem:{semester}"
+    cached_data = await cache.get(cache_key)
+
+    if cached_data:
+        return {
+            "source": "CACHE_HIT (Redis)",
+            "data": json.loads(cached_data)
+        }
+
+    # 3. Database Fallback Query
+    results_stmt = select(Result).where(
+        Result.student_id == student.id,
         Result.semester == semester
     )
-    results = (await db.execute(results_query)).scalars().all()
+    results = (await db.execute(results_stmt)).scalars().all()
 
-    if not results:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No results published for Semester {semester}"
-        )
-
-    # 4. Serialize payload
     payload = {
-        "roll_number": db_student.roll_number,
-        "full_name": db_student.full_name,
+        "roll_number": student.roll_number,
+        "full_name": student.full_name,
         "semester": semester,
         "subjects": [
             {
@@ -75,11 +82,8 @@ async def get_my_results(
         ]
     }
 
-    # 5. Store in Redis with a 24-hour TTL (86,400 seconds)
-    try:
-        await cache.set(cache_key, json.dumps(payload), ex=86400)
-    except Exception:
-        pass
+    # 4. Populate Redis Cache (24-hour TTL)
+    await cache.set(cache_key, json.dumps(payload), ex=86400)
 
     return {
         "source": "DATABASE_MISS (Neon PostgreSQL)",
