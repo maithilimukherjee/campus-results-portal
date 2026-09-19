@@ -11,20 +11,20 @@ class PaymentStatus(str, enum.Enum):
     FAILED = "FAILED"
 
 class Student(Base):
-    _tablename_ = "students"
+    __tablename__ = "students"  # 👈 MUST be present
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_uid = Column(String, unique=True, nullable=False, index=True)
     roll_number = Column(String, unique=True, nullable=False, index=True)
     full_name = Column(String, nullable=False)
     department = Column(String, nullable=False)
-    current_semester = Column(Integer, default=1, nullable=False) # Added for promotion tracking
+    current_semester = Column(Integer, default=1, nullable=False)
 
     results = relationship("Result", back_populates="student", cascade="all, delete-orphan")
     payments = relationship("Payment", back_populates="student")
 
 class Teacher(Base):
-    _tablename_ = "teachers"
+    __tablename__ = "teachers"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_uid = Column(String, unique=True, nullable=False, index=True)
@@ -35,20 +35,19 @@ class Teacher(Base):
     published_results = relationship("Result", back_populates="publisher")
 
 class ClassTeacher(Base):
-    _tablename_ = "class_teachers"
+    __tablename__ = "class_teachers"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     teacher_id = Column(UUID(as_uuid=True), ForeignKey("teachers.id"), nullable=False)
     semester = Column(Integer, nullable=False)
     department = Column(String, nullable=False)
 
-    # Ensures only ONE class teacher per semester-department combination
-    _table_args_ = (
+    __table_args__ = (
         UniqueConstraint("semester", "department", name="uix_semester_department"),
     )
 
 class Result(Base):
-    _tablename_ = "results"
+    __tablename__ = "results"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     student_id = Column(UUID(as_uuid=True), ForeignKey("students.id"), nullable=False)
@@ -59,23 +58,22 @@ class Result(Base):
     marks_obtained = Column(Numeric(5, 2), nullable=False)
     max_marks = Column(Numeric(5, 2), default=100.0)
     grade = Column(String, nullable=False)
-    
-    is_published = Column(Boolean, default=False, nullable=False) # Added draft vs published state
+    is_published = Column(Boolean, default=False, nullable=False)
 
     student = relationship("Student", back_populates="results")
     publisher = relationship("Teacher", back_populates="published_results")
 
-    _table_args_ = (
+    __table_args__ = (
         UniqueConstraint("student_id", "semester", "subject_code", name="uix_student_semester_subject"),
     )
 
 class Payment(Base):
-    _tablename_ = "payments"
+    __tablename__ = "payments"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     idempotency_key = Column(String, unique=True, nullable=False, index=True)
     student_id = Column(UUID(as_uuid=True), ForeignKey("students.id"), nullable=False)
-    semester = Column(Integer, nullable=False) # Added to track which semester was paid for
+    semester = Column(Integer, nullable=False)
     amount = Column(Numeric(10, 2), nullable=False)
     status = Column(SQLEnum(PaymentStatus), default=PaymentStatus.PENDING, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
