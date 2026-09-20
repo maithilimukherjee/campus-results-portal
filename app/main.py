@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from app.routers import auth_router, results_router, payments_router, admin_router
 from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
 
 app = FastAPI(
     title="Result-Day Digital Campus Platform API",
