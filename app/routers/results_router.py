@@ -26,7 +26,29 @@ class MarkEntry(BaseModel):
 class UploadMarksRequest(BaseModel):
     semester: int
     marks: List[MarkEntry]
+
+
  
+# --- Additional Request Schemas ---
+ 
+class ReevaluationRequest(BaseModel):
+
+    subject_code: str
+ 
+class CompleteReevaluationRequest(BaseModel):
+
+    roll_number: str
+
+    semester: int
+
+    subject_code: str
+
+    new_marks_obtained: float
+
+    new_grade: str
+ 
+ 
+
  
 # --- 1. Teacher Endpoint: Upload Marks as Drafts (Class Teacher Only) ---
  
@@ -248,3 +270,155 @@ async def download_grade_card(
         "semester": semester,
         "status": "OFFICIAL_DOCUMENT" # Removed 'PAID' from status string
     }
+
+
+# --- 4. Student Endpoint: Request Reevaluation ---
+@router.post("/{semester}/request-reevaluation", status_code=status.HTTP_200_OK)
+async def request_reevaluation(
+    semester: int,
+    payload: ReevaluationRequest,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Student requests reevaluation for a specific subject. Strictly limited to one attempt."""
+    user_uid = user.get("uid")
+    
+    student_stmt = select(Student).where(Student.user_uid == user_uid)
+    student = (await db.execute(student_stmt)).scalar_one_or_none()
+    
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found.")
+
+    result_stmt = select(Result).where(
+        Result.student_id == student.id,
+        Result.semester == semester,
+        Result.subject_code == payload.subject_code,
+        Result.is_published == True
+    )
+    result = (await db.execute(result_stmt)).scalar_one_or_none()
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Published result not found for this subject.")
+
+    # Enforce "At most once" rule
+    if result.reevaluation_status != ReevaluationStatus.NONE:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Reevaluation for {payload.subject_code} has already been requested or completed."
+        )
+
+    result.reevaluation_status = ReevaluationStatus.REQUESTED
+    await db.commit()
+
+    return {
+        "message": f"Reevaluation requested successfully for {payload.subject_code}.",
+        "status": result.reevaluation_status
+    }
+
+
+# --- 5. Teacher Endpoint: View Pending Reevaluations ---
+
+@router.get("/reevaluations/pending")
+async def get_pending_reevaluations(
+    semester: int,
+    user: dict = Depends(require_role("teacher")),
+    db: AsyncSession = Depends(get_db)
+):
+    """Class teacher fetches all pending reevaluation requests for their assigned class."""
+    user_uid = user.get("uid")
+    
+    teacher_stmt = select(Teacher).where(Teacher.user_uid == user_uid)
+    teacher = (await db.execute(teacher_stmt)).scalar_one_or_none()
+
+    assignment_stmt = select(ClassTeacher).where(
+        ClassTeacher.teacher_id == teacher.id,
+        ClassTeacher.semester == semester
+    )
+    assignment = (await db.execute(assignment_stmt)).scalar_one_or_none()
+
+    if not assignment:
+        raise HTTPException(status_code=403, detail="Not assigned as Class Teacher for this semester.")
+
+    # Fetch REQUESTED results for students in this teacher's assigned department
+    pending_stmt = (
+        select(Result, Student)
+        .join(Student, Result.student_id == Student.id)
+        .where(
+            Result.semester == semester,
+            Result.reevaluation_status == ReevaluationStatus.REQUESTED,
+            Student.department == assignment.department
+        )
+    )
+    
+    rows = (await db.execute(pending_stmt)).all()
+    
+    return [
+        {
+            "roll_number": student.roll_number,
+            "student_name": student.full_name,
+            "subject_code": result.subject_code,
+            "current_marks": result.marks_obtained,
+            "current_grade": result.grade
+        }
+        for result, student in rows
+    ]
+
+
+# --- 6. Teacher Endpoint: Complete Reevaluation ---
+
+@router.post("/reevaluations/complete", status_code=status.HTTP_200_OK)
+async def complete_reevaluation(
+    payload: CompleteReevaluationRequest,
+    user: dict = Depends(require_role("teacher")),
+    db: AsyncSession = Depends(get_db),
+    cache: redis.Redis = Depends(get_redis) # ⚡ Required to purge stale cache
+):
+    """Class teacher submits updated marks. Updates DB and forcefully invalidates Redis cache."""
+    user_uid = user.get("uid")
+    
+    teacher = (await db.execute(select(Teacher).where(Teacher.user_uid == user_uid))).scalar_one_or_none()
+    student = (await db.execute(select(Student).where(Student.roll_number == payload.roll_number))).scalar_one_or_none()
+
+    if not student or not teacher:
+        raise HTTPException(status_code=404, detail="Entity not found.")
+
+    # Validate Teacher Assignment
+    assignment = (await db.execute(select(ClassTeacher).where(
+        ClassTeacher.teacher_id == teacher.id,
+        ClassTeacher.semester == payload.semester,
+        ClassTeacher.department == student.department
+    ))).scalar_one_or_none()
+
+    if not assignment:
+        raise HTTPException(status_code=403, detail="Unauthorized to reevaluate this student.")
+
+    # Find the specific requested result
+    result = (await db.execute(select(Result).where(
+        Result.student_id == student.id,
+        Result.semester == payload.semester,
+        Result.subject_code == payload.subject_code,
+        Result.reevaluation_status == ReevaluationStatus.REQUESTED
+    ))).scalar_one_or_none()
+
+    if not result:
+        raise HTTPException(status_code=404, detail="No pending reevaluation request found for this subject.")
+
+    # 1. Update the Database Ledger
+    result.original_marks = result.marks_obtained # Save audit trail
+    result.marks_obtained = payload.new_marks_obtained
+    result.grade = payload.new_grade
+    result.reevaluation_status = ReevaluationStatus.COMPLETED
+    
+    await db.commit()
+
+    # 2. ⚡ CACHE INVALIDATION: Forcefully delete the student's old result cache
+    cache_key = f"result:{str(student.id)}:sem:{str(payload.semester)}"
+    await cache.delete(cache_key)
+
+    return {
+        "message": "Reevaluation completed successfully. New grade card is available.",
+        "roll_number": student.roll_number,
+        "subject_code": result.subject_code,
+        "new_grade": result.grade
+    }
+
