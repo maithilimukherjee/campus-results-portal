@@ -204,7 +204,7 @@ async def promote_semester(
     if not has_paid:
         raise HTTPException(
             status_code=402, 
-            detail=f"Pending fee clearance for Semester {current_sem}. Please ensure fees are paid before promotion."
+            detail=f"Pending fee clearance for Semester {current_sem+1}. Please ensure fees are paid before promotion."
         )
 
     # 4. PROMOTE STUDENT
