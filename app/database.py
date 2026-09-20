@@ -34,7 +34,7 @@ def sanitize_db_url(url: str) -> str:
  
 DATABASE_URL = sanitize_db_url(RAW_DB_URL)
  
-# ⚡ High-Concurrency Async Engine with Connection Pooling
+# High-Concurrency Async Engine with Connection Pooling
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,

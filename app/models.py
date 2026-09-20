@@ -11,7 +11,7 @@ class PaymentStatus(str, enum.Enum):
     FAILED = "FAILED"
 
 class Student(Base):
-    __tablename__ = "students"  # 👈 MUST be present
+    __tablename__ = "students"  
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_uid = Column(String, unique=True, nullable=False, index=True)
@@ -24,6 +24,7 @@ class Student(Base):
     payments = relationship("Payment", back_populates="student")
 
 class Teacher(Base):
+    
     __tablename__ = "teachers"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

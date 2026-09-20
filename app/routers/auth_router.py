@@ -121,7 +121,7 @@ async def set_user_role(
                     roll_number=roll,
                     full_name=display_name,
                     department=department,
-                    current_semester=1  # ⚡ Added default semester 1 for new students
+                    current_semester=1  
                 )
                 db.add(new_student)
                 await db.commit()
