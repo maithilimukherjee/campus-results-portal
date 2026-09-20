@@ -163,13 +163,13 @@ async def get_student_results(
     payment_stmt = select(Payment).where(
         Payment.student_id == student.id,
         Payment.semester == semester,
-        Payment.status == PaymentStatus.SUCCESS
+        Payment.status == "SUCCESS"
     )
     has_paid = (await db.execute(payment_stmt)).scalars().first()
     can_download = True if has_paid else False
  
     # 3. Redis Cache Lookup (Cache-Aside Pattern)
-    cache_key = f"result:{student.id}:sem:{semester}"
+    cache_key = f"result:{str(student.id)}:sem:{str(semester)}"
     cached_data = await cache.get(cache_key)
  
     if cached_data:
