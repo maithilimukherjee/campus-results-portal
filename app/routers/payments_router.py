@@ -31,11 +31,12 @@ class UpdatePaymentStatusRequest(BaseModel):
 async def initiate_payment(
     payload: InitiatePaymentRequest,
     user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    cache: redis.Redis = Depends(get_redis)  # ⚡ Added Redis for double-click prevention
 ):
     """
-    Initiates payment. The idempotency key is deterministically generated 
-    based on the year, roll number, and semester to prevent duplicate payments.
+    Initiates payment. The idempotency key is deterministically generated.
+    Includes failure recovery: if previous attempts failed, it generates a new attempt.
     """
     user_uid = user.get("uid")
 
@@ -46,50 +47,77 @@ async def initiate_payment(
         raise HTTPException(status_code=404, detail="Student profile not found.")
 
     target_semester = payload.semester if payload.semester is not None else student.current_semester
-
     current_year = datetime.now().year
-    deterministic_key = f"FEE_{current_year}_{student.roll_number}_SEM{target_semester}"
+    
+    # 1. Base Deterministic Key (e.g., FEE_2026_CS001_SEM1)
+    base_key = f"FEE_{current_year}_{student.roll_number}_SEM{target_semester}"
 
-    existing_stmt = select(Payment).where(Payment.idempotency_key == deterministic_key)
-    existing_payment = (await db.execute(existing_stmt)).scalar_one_or_none()
+    # 2. REDIS LOCK: Prevent rapid double-clicks (10-second window)
+    lock_key = f"lock:init_pay:{student.id}:{base_key}"
+    acquired = await cache.set(lock_key, "processing", nx=True, ex=10)
+    
+    if not acquired:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Payment request is already processing. Please do not refresh."
+        )
 
-    if existing_payment:
-        if existing_payment.status == PaymentStatus.SUCCESS:
-            return {
-                "message": f"Payment for Semester {target_semester} has already been paid successfully.",
-                "payment_id": str(existing_payment.id),
-                "status": existing_payment.status,
-                "semester": existing_payment.semester
-            }
-        
+    try:
+        # 3. Idempotency Check & Failure Recovery (Wildcard Search)
+        existing_stmt = select(Payment).where(Payment.idempotency_key.like(f"{base_key}%"))
+        existing_payments = (await db.execute(existing_stmt)).scalars().all()
+
+        if existing_payments:
+            for ep in existing_payments:
+                if ep.status == PaymentStatus.SUCCESS:
+                    return {
+                        "message": f"Payment for Semester {target_semester} has already been paid successfully.",
+                        "payment_id": str(ep.id),
+                        "status": ep.status,
+                        "semester": ep.semester
+                    }
+                if ep.status == PaymentStatus.PENDING:
+                    return {
+                        "message": "You have an active pending payment intent.",
+                        "payment_id": str(ep.id),
+                        "status": ep.status,
+                        "semester": ep.semester
+                    }
+            
+            # ⚡ FAILURE RECOVERY: All previous attempts failed.
+            # Append an attempt counter so they aren't permanently locked out.
+            attempt_count = len(existing_payments) + 1
+            final_idempotency_key = f"{base_key}_ATTEMPT_{attempt_count}"
+        else:
+            # First time trying to pay this fee
+            final_idempotency_key = base_key
+
+        # 4. Insert New Pending Payment
+        new_payment = Payment(
+            idempotency_key=final_idempotency_key,
+            student_id=student.id,
+            semester=target_semester,
+            amount=payload.amount,
+            status=PaymentStatus.PENDING
+        )
+        db.add(new_payment)
+        await db.commit()
+        await db.refresh(new_payment)
+
         return {
-            "message": "Payment intent already exists for this semester.",
-            "payment_id": str(existing_payment.id),
-            "status": existing_payment.status,
-            "semester": existing_payment.semester
+            "message": "Payment initiated successfully.",
+            "payment_id": str(new_payment.id),
+            "status": new_payment.status,
+            "semester": new_payment.semester,
+            "idempotency_key_used": final_idempotency_key
         }
 
-    new_payment = Payment(
-        idempotency_key=deterministic_key,
-        student_id=student.id,
-        semester=target_semester,
-        amount=payload.amount,
-        status=PaymentStatus.PENDING
-    )
-    db.add(new_payment)
-    await db.commit()
-    await db.refresh(new_payment)
-
-    return {
-        "message": "Payment initiated successfully.",
-        "payment_id": str(new_payment.id),
-        "status": new_payment.status,
-        "semester": new_payment.semester,
-        "idempotency_key_used": deterministic_key
-    }
+    finally:
+        # 5. ALWAYS release the Redis Lock so they can try again safely
+        await cache.delete(lock_key)
 
 
-# SECURED WEBHOOK (Admin Only)
+# --- SECURED WEBHOOK (Admin Only) ---
 @router.post("/callback", status_code=status.HTTP_200_OK)
 async def payment_callback(
     payload: UpdatePaymentStatusRequest,
