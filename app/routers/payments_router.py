@@ -32,7 +32,7 @@ async def initiate_payment(
     payload: InitiatePaymentRequest,
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    cache: redis.Redis = Depends(get_redis)  # ⚡ Added Redis for double-click prevention
+    cache: redis.Redis = Depends(get_redis)  
 ):
     """
     Initiates payment. The idempotency key is deterministically generated.
@@ -148,7 +148,7 @@ async def payment_callback(
     await db.commit()
 
     if payload.status == PaymentStatus.SUCCESS:
-        cache_key = f"result:{payment.student_id}:sem:{payment.semester}"
+        cache_key = f"result:{str(payment.student_id)}:sem:{str(payment.semester)}"
         await cache.delete(cache_key)
 
     return {

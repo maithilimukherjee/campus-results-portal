@@ -196,7 +196,7 @@ async def promote_semester(
     # 3. FINANCIAL GATE (Only checked if they actually passed)
     payment_stmt = select(Payment).where(
         Payment.student_id == student.id,
-        Payment.semester == current_sem,
+        Payment.semester == current_sem+1,
         Payment.status == PaymentStatus.SUCCESS
     )
     has_paid = (await db.execute(payment_stmt)).scalars().first()

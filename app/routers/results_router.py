@@ -159,27 +159,20 @@ async def get_student_results(
         await db.commit()
         await db.refresh(student)
  
-    # 2. Payment Status Check for Requested Semester
-    payment_stmt = select(Payment).where(
-        Payment.student_id == student.id,
-        Payment.semester == semester,
-        Payment.status == "SUCCESS"
-    )
-    has_paid = (await db.execute(payment_stmt)).scalars().first()
-    can_download = True if has_paid else False
+    # ⚡ REMOVED: Database query checking the Payment table
  
-    # 3. Redis Cache Lookup (Cache-Aside Pattern)
+    # 2. Redis Cache Lookup (Cache-Aside Pattern)
     cache_key = f"result:{str(student.id)}:sem:{str(semester)}"
     cached_data = await cache.get(cache_key)
  
     if cached_data:
         return {
             "source": "CACHE_HIT (Redis)",
-            "can_download": can_download,
+            "can_download": True, # Always True
             "data": json.loads(cached_data)
         }
  
-    # 4. Database Fallback Query (Only fetches PUBLISHED results)
+    # 3. Database Fallback Query (Only fetches PUBLISHED results)
     results_stmt = select(Result).where(
         Result.student_id == student.id,
         Result.semester == semester,
@@ -203,18 +196,18 @@ async def get_student_results(
         ]
     }
  
-    # 5. Populate Redis Cache (24-hour TTL) if published results exist
+    # 4. Populate Redis Cache (24-hour TTL) if published results exist
     if results:
         await cache.set(cache_key, json.dumps(payload), ex=86400)
  
     return {
         "source": "DATABASE_MISS (Neon PostgreSQL)",
-        "can_download": can_download,
+        "can_download": True, # Always True
         "data": payload
     }
  
  
-# --- 3. Student Endpoint: Download Grade Card (Gated by Payment & Publication) ---
+# --- 3. Student Endpoint: Download Grade Card (Gated by Publication ONLY) ---
  
 @router.get("/{semester}/download")
 async def download_grade_card(
@@ -222,7 +215,7 @@ async def download_grade_card(
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Downloads official grade card document. Hard-blocked by payment status and publication status."""
+    """Downloads official grade card document. Only blocked by publication status."""
     user_uid = user.get("uid")
  
     student_stmt = select(Student).where(Student.user_uid == user_uid)
@@ -245,25 +238,13 @@ async def download_grade_card(
             detail=f"No published results found for Semester {semester}."
         )
  
-    # 2. Hard Payment Gate for this Semester
-    payment_stmt = select(Payment).where(
-        Payment.student_id == student.id,
-        Payment.semester == semester,
-        Payment.status == PaymentStatus.SUCCESS
-    )
-    has_paid = (await db.execute(payment_stmt)).scalars().first()
- 
-    if not has_paid:
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail=f"Semester {semester} fee payment required to download official grade card."
-        )
- 
+    # ⚡ REMOVED: The Hard Payment Gate blocking document generation
+
     return {
         "message": "Grade card generated successfully.",
         "download_url": f"/static/grade_cards/{student.roll_number}_sem{semester}.pdf",
         "student_name": student.full_name,
         "roll_number": student.roll_number,
         "semester": semester,
-        "status": "OFFICIAL_PAID_DOCUMENT"
+        "status": "OFFICIAL_DOCUMENT" # Removed 'PAID' from status string
     }
