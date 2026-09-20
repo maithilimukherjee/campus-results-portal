@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.routers import auth_router, results_router, payments_router, admin_router, student_router
+from app.routers import auth_router, results_router, payments_router, admin_router
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
@@ -21,7 +21,7 @@ app.include_router(auth_router.router)
 app.include_router(results_router.router)
 app.include_router(payments_router.router)
 app.include_router(admin_router.router)
-app.include_router(student_router.router)
+
 
 @app.get("/")
 def health_check():
