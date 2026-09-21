@@ -1,9 +1,14 @@
 import uuid
 import enum
-from sqlalchemy import Column, String, Integer, Numeric, DateTime, ForeignKey, Boolean, Enum as SQLEnum, UniqueConstraint, func
+from sqlalchemy import Column, String, Float, Integer, Numeric, DateTime, ForeignKey, Boolean, Enum as SQLEnum, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.database import Base
+
+class ReevaluationStatus(str, enum.Enum):
+    NONE = "NONE"
+    REQUESTED = "REQUESTED"
+    COMPLETED = "COMPLETED"
 
 class PaymentStatus(str, enum.Enum):
     PENDING = "PENDING"
@@ -60,6 +65,8 @@ class Result(Base):
     max_marks = Column(Numeric(5, 2), default=100.0)
     grade = Column(String, nullable=False)
     is_published = Column(Boolean, default=False, nullable=False)
+    reevaluation_status = Column(String, default=ReevaluationStatus.NONE)
+    original_marks = Column(Float, nullable=True) # Audit trail for the old grade
 
     student = relationship("Student", back_populates="results")
     publisher = relationship("Teacher", back_populates="published_results")

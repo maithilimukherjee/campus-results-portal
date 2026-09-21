@@ -8,7 +8,7 @@ import redis.asyncio as redis
  
 from app.database import get_db
 from app.redis_client import get_redis
-from app.models import Student, Teacher, ClassTeacher, Result, Payment, PaymentStatus
+from app.models import Student, Teacher, ClassTeacher, Result, Payment, PaymentStatus, ReevaluationStatus
 from app.auth import get_current_user, require_role
  
 router = APIRouter(prefix="/api/v1/results", tags=["Results"])
@@ -27,8 +27,6 @@ class UploadMarksRequest(BaseModel):
     semester: int
     marks: List[MarkEntry]
 
-
- 
 # --- Additional Request Schemas ---
  
 class ReevaluationRequest(BaseModel):

@@ -32,7 +32,6 @@ class AdminPaymentView(BaseModel):
     idempotency_key: str
     created_at: datetime
 
-# ⚡ Added Promote Schema
 class PromoteStudentRequest(BaseModel):
     roll_number: str
 
