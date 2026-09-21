@@ -21,11 +21,11 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 def require_role(required_role: str):
     """Dependency wrapper for Role-Based Access Control (RBAC)."""
     def role_checker(user: dict = Depends(get_current_user)):
-        user_role = user.get("role", "student")  # Defaults to student if not set
+        user_role = user.get("role", "student") 
         if user_role != required_role:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Access forbidden: Requires '{required_role}' role"
             )
         return user
-    return role_checker
+    return role_checker 
