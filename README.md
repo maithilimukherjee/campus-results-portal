@@ -1,5 +1,9 @@
 # Campus Results Portal
 
+🚀 **Live API:** [https://campus-results-portal.onrender.com](https://campus-results-portal.onrender.com)
+
+📖 **Swagger UI:** [https://campus-results-portal.onrender.com/docs](https://campus-results-portal.onrender.com/docs)
+
 A production-grade backend API built for **Result Day** — the single most traffic-intensive day in a college's academic calendar. When results are announced, thousands of students simultaneously rush to check their grades, causing traditional servers to crash. This system is engineered to handle that spike without failure.
 
 ---
@@ -120,6 +124,37 @@ Students can request reevaluation per subject (one request per subject enforced)
 
 ### 6. Student Promotion Gates
 Promotion checks academics first (no failing grades), then financials (fee paid for next semester). If a student has an F grade, promotion is blocked and a repeat fee is required.
+
+---
+
+## Project Structure
+
+```
+campus-results-portal/
+├── app/
+│   ├── routers/
+│   │   ├── admin_router.py       # Admin endpoints
+│   │   ├── auth_router.py        # Auth endpoints
+│   │   ├── payments_router.py    # Payment endpoints
+│   │   └── results_router.py     # Results + reevaluation endpoints
+│   ├── auth.py                   # Firebase JWT verification + RBAC
+│   ├── config.py                 # Firebase Admin SDK initialization
+│   ├── database.py               # Async SQLAlchemy engine + session
+│   ├── main.py                   # FastAPI app + router registration
+│   ├── models.py                 # SQLAlchemy ORM models
+│   └── redis_client.py           # Redis async client
+├── .env                          # Environment variables (not committed)
+├── .env.example                  # Environment variable template
+├── .gitignore
+├── init_db.py                    # Creates all tables in Neon PostgreSQL
+├── locustfile.py                 # Load testing simulation
+├── make_admin.py                 # Promotes a user to admin role
+├── requirements.txt
+├── seed_admin.py                 # Seeds admin user
+├── seed_data.py                  # Seeds mock student, teacher and results
+├── seed_student_marks.py         # Seeds additional student marks
+└── test_db.py                    # Database connection test
+```
 
 ---
 
@@ -259,3 +294,44 @@ The locustfile simulates:
 | `student` | View results, download grade card, initiate payment, request reevaluation |
 | `teacher` | Upload marks, view and complete reevaluations |
 | `admin` | Full access — assign teachers, publish results, manage payments, promote students |
+
+---
+
+## Building a Frontend on Top of This API
+
+This backend is fully REST-compliant and ready to plug into any frontend framework.
+
+### Authentication Flow
+- Call `POST /api/v1/auth/login` with email and password
+- Store the returned `access_token` (Firebase JWT) in `localStorage` or a cookie
+- Attach it to every request as `Authorization: Bearer <token>`
+- Use `GET /api/v1/auth/me` to get the logged-in user's role and render the correct dashboard
+
+### Student Dashboard
+- `GET /api/v1/results/{semester}` — fetch and display the result card for any semester
+- The response includes a `source` field (`CACHE_HIT` or `DATABASE_MISS`) — useful to show a cache status indicator
+- `GET /api/v1/results/{semester}/download` — trigger a grade card download
+- `POST /api/v1/results/{semester}/request-reevaluation` — show a reevaluation request button per subject
+- `POST /api/v1/payments/initiate` — build a fee payment form per semester
+
+### Teacher Dashboard
+- `POST /api/v1/results/upload-marks` — build a bulk marks upload form (CSV or manual entry)
+- `GET /api/v1/results/reevaluations/pending` — show a list of pending reevaluation requests
+- `POST /api/v1/results/reevaluations/complete` — form to submit updated marks per student
+
+### Admin Dashboard
+- `POST /api/v1/auth/set-role` — user management panel to assign roles
+- `POST /api/v1/admin/assign-class-teacher` — assign teachers to semesters
+- `POST /api/v1/admin/publish-results` — one-click publish button per semester + department
+- `GET /api/v1/admin/payment-requests` — filterable payment records table
+- `POST /api/v1/admin/promote-student` — student promotion panel
+
+### Recommended Frontend Stack
+| Layer | Suggestion |
+|---|---|
+| Framework | React / Next.js |
+| HTTP Client | Axios or fetch with interceptors for JWT attachment |
+| Auth State | React Context or Zustand to store token and role |
+| UI | Tailwind CSS / shadcn/ui |
+
+All endpoints return clean JSON responses and are fully documented at `/docs` via Swagger UI.
