@@ -1,8 +1,8 @@
 # Campus Results Portal
 
-🚀 **Live API:** [https://campus-results-portal.onrender.com](https://campus-results-portal.onrender.com)
+**Live API:** [https://campus-results-portal.onrender.com](https://campus-results-portal.onrender.com)
 
-📖 **Swagger UI:** [https://campus-results-portal.onrender.com/docs](https://campus-results-portal.onrender.com/docs)
+**Swagger UI:** [https://campus-results-portal.onrender.com/docs](https://campus-results-portal.onrender.com/docs)
 
 A production-grade backend API built for **Result Day** — the single most traffic-intensive day in a college's academic calendar. When results are announced, thousands of students simultaneously rush to check their grades, causing traditional servers to crash. This system is engineered to handle that spike without failure.
 
