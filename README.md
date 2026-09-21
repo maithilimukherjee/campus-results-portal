@@ -1,12 +1,51 @@
 # Campus Results Portal
 
-A production-grade backend API built for **Result Day** — the single most traffic-intensive day in a college's academic calendar. When results are announced, thousands of students simultaneously rush to check their grades, causing traditional servers to crash. This system is engineered to handle that spike without failure.
+A production-grade backend API built for **Result Day** — the single most traffic-intensive day in a college's academic calendar. When results are announced, thousands of students simultaneously try to access their academic records, making performance and reliability critical.
+
+---
+
+## Live Demo
+
+The application is deployed at: https://campus-results-portal.onrender.com
+
+---
+
+## Project Structure
+
+```text
+campus-results-portal/
+├── app/
+│   ├── auth.py
+│   ├── config.py
+│   ├── database.py
+│   ├── main.py
+│   ├── models.py
+│   ├── redis_client.py
+│   └── routers/
+│       ├── admin_router.py
+│       ├── auth_router.py
+│       ├── payments_router.py
+│       └── results_router.py
+├── .env.example
+├── .gitignore
+├── init_db.py
+├── link_student.py
+├── locustfile.py
+├── make_admin.py
+├── README.md
+├── requirements.txt
+├── seed_admin.py
+├── seed_data.py
+├── seed_student_marks.py
+├── test_db.py
+└── ...
+```
 
 ---
 
 ## Problem Statement
 
-On Result Day, college servers crash due to the massive simultaneous load of students logging in to view their results. Students are locked out at the most critical moment. Additionally, traditional systems block students from viewing results if their fees are pending, and provide no digital process for grade reevaluation.
+On Result Day, college servers crash due to the massive simultaneous load of students logging in to view their results. Students are locked out at the most critical moment. Additionally, traditional systems often tie result access to payment status, creating avoidable bottlenecks and frustration.
 
 ---
 
@@ -104,19 +143,19 @@ W1   W2   W3   W4      ← 4 FastAPI uvicorn workers (ports 8001–8004)
 ## Key Engineering Decisions
 
 ### 1. Redis Cache-Aside (Result Day Traffic)
-Every result view checks Redis first. Only the first request per student per semester hits Neon. Subsequent requests are served from cache with a 24-hour TTL. When results are updated (reevaluation or publish), the cache is forcefully invalidated.
+Every result view checks Redis first. Only the first request per student per semester hits Neon. Subsequent requests are served from cache with a 24-hour TTL. When results are updated (reevaluation or grade changes), the cache is invalidated to preserve correctness.
 
 ### 2. Payment Never Blocks Results
 Viewing results and downloading grade cards has zero payment dependency. Payment is only required for semester promotion. This ensures students always have access to their academic records.
 
 ### 3. Idempotent Payments
-Payment keys are deterministically generated as `FEE_{year}_{roll_number}_SEM{semester}`. A Redis distributed lock (10-second window) prevents double-click duplicates. Failed payments append an attempt counter so students are never permanently locked out.
+Payment keys are deterministically generated as `FEE_{year}_{roll_number}_SEM{semester}`. A Redis distributed lock (10-second window) prevents double-click duplicates. Failed payments append an audit trail without creating duplicate obligations.
 
 ### 4. Draft → Publish Workflow
-Teachers upload marks as drafts (`is_published=False`). Students cannot see drafts. Admin publishes results for an entire semester + department in one action, making them visible to all students simultaneously.
+Teachers upload marks as drafts (`is_published=False`). Students cannot see drafts. Admin publishes results for an entire semester + department in one action, making them visible to all students in that cohort.
 
 ### 5. Reevaluation Workflow
-Students can request reevaluation per subject (one request per subject enforced). The assigned class teacher reviews and submits updated marks. On completion, the student's Redis cache is invalidated so they see the corrected grade card immediately.
+Students can request reevaluation per subject (one request per subject enforced). The assigned class teacher reviews and submits updated marks. On completion, the student's Redis cache is invalidated so updated grades appear immediately.
 
 ### 6. Student Promotion Gates
 Promotion checks academics first (no failing grades), then financials (fee paid for next semester). If a student has an F grade, promotion is blocked and a repeat fee is required.
